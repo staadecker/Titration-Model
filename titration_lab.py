@@ -4,10 +4,12 @@ import pandas
 import matplotlib.pyplot as plt
 import numpy as np
 
-LIMIT_TO_CONSIDER_DONE = 0.0005
+MAX_ITERATIONS = 1000
 
-RESOLUTION = 1
-MAX_CONCENTRATION = 1
+CHANGE_CUTOFF = 0.0005
+
+PH_CURVE_RESOLUTION = 0.01  # Greater number lower resolution
+CONCENTRATION_CURVE_RESOLUTION = 1  # Greater number lower resolution
 
 CH3COO = "Acetate"
 CH3COOH = "Acetic acid"
@@ -16,10 +18,10 @@ H3O = "Hydronium"
 
 KW = 10.0 ** -14
 KA = 1.76 * (10.0 ** -5)
-KB = 5.68 * (10.0 ** -10)
+KB = KW / KA
 
 
-def get_pH(initial_oh):
+def get_ph(initial_oh):
     iterations = []
     concentrations = []
     molecules = []
@@ -29,98 +31,82 @@ def get_pH(initial_oh):
         concentrations.append(value)
         molecules.append(molecule)
 
-    oh = initial_oh
+    oh = initial_oh + 10.0 ** (-7)
     ch3coo = 0.
     ch3cooh = 1.
     h3o = 10.0 ** (-7)
+
     add_row(0, ch3coo, CH3COO)
     add_row(0, ch3cooh, CH3COOH)
     add_row(0, oh, OH)
     add_row(0, h3o, H3O)
-    i = 1
-    while i < 1000:
 
-        initial_ch3cooh = ch3cooh
+    next_entry = 1
 
-        for _ in range(RESOLUTION):
-            # q_w = h3o * oh
-            # if ch3cooh == 0:
-            #     q_a = 10 ** 10
-            # else:
-            #     q_a = h3o * ch3coo / ch3cooh
-            # if ch3coo == 0:
-            #     q_b = 10 ** 10
-            # else:
-            #     q_b = ch3cooh * oh / ch3coo
+    for i in range(1, MAX_ITERATIONS):
+        # WATER AUTO-IONIZATION
+        change_w = 0.5 * (- oh - h3o + math.sqrt((oh + h3o) ** 2 - 4 * oh * h3o + 4 * KW))
 
-            change_w = 0.5 * (- oh - h3o + math.sqrt((oh + h3o) ** 2 - 4 * oh * h3o + 4 * KW))
+        if change_w < 0:
+            change_w = -min(oh, h3o, -change_w)
 
-            if change_w < 0:
-                change_w = -min(oh, h3o, -change_w)
+        oh += change_w
+        h3o += change_w
 
-            # print("change w" + str(change_w))
-            oh += change_w
-            h3o += change_w
+        # ACETIC ACID DISSOCIATION
+        change_a = (- h3o - ch3coo - KA + math.sqrt(((h3o + ch3coo + KA) ** 2) - 4 * (h3o * ch3coo - KA * ch3cooh))) / 2
 
-            change_a = 0.5 * (- h3o - ch3coo - KA + math.sqrt(
-                ((h3o + ch3coo + KA) ** 2) - 4 * h3o * ch3coo + 4 * KA * ch3cooh))
+        if change_a > 0:
+            change_a = min(change_a, ch3cooh)
+        else:
+            change_a = - min(-change_a, ch3coo, h3o)
 
-            if change_a > 0:
-                change_a = min(change_a, ch3cooh)
-            else:
-                change_a = - min(-change_a, ch3coo, h3o)
+        ch3cooh -= change_a
+        ch3coo += change_a
+        h3o += change_a
 
-            # print("change a" + str(change_a))
-            ch3cooh -= change_a
-            ch3coo += change_a
-            h3o += change_a
+        #  ACETATE BASE
+        change_b = (- oh - ch3cooh - KB + math.sqrt(((oh + ch3cooh + KB) ** 2) - 4 * (oh * ch3cooh - KB * ch3coo))) / 2
 
-            change_b = 0.5 * (- oh - ch3cooh - KB + math.sqrt(
-                ((oh + ch3cooh + KB) ** 2) - 4 * oh * ch3cooh + 4 * KB * ch3coo))
+        if change_b > 0:
+            change_b = min(change_b, ch3coo)
+        else:
+            change_b = - min(-change_b, ch3cooh, oh)
 
-            if change_b > 0:
-                change_b = min(change_b, ch3coo)
-            else:
-                change_b = - min(-change_b, ch3cooh, oh)
+        ch3coo -= change_b
+        oh += change_b
+        ch3cooh += change_b
 
-            # print("change b" + str(change_b))
+        if i % CONCENTRATION_CURVE_RESOLUTION == 0:
+            add_row(next_entry, ch3coo, CH3COO)
+            add_row(next_entry, ch3cooh, CH3COOH)
+            add_row(next_entry, oh, OH)
+            add_row(next_entry, h3o, H3O)
+            next_entry += 1
 
-            ch3coo -= change_b
-            oh += change_b
-            ch3cooh += change_b
-
-        add_row(i, ch3coo, CH3COO)
-        add_row(i, ch3cooh, CH3COOH)
-        add_row(i, oh, OH)
-        add_row(i, h3o, H3O)
-
-        if change_b < LIMIT_TO_CONSIDER_DONE and change_a < LIMIT_TO_CONSIDER_DONE and change_w < LIMIT_TO_CONSIDER_DONE:
+        if change_b < CHANGE_CUTOFF and change_a < CHANGE_CUTOFF and change_w < CHANGE_CUTOFF:
             break
 
-        i += 1
     df = pandas.DataFrame({"Iteration": iterations, "Concentration": concentrations, "Type": molecules})
-    # print(df)
+
     # sns.set()
     # sns.lineplot(x='Iteration', y='Concentration', data=df, hue="Type")
 
-    # print()
-    h3o_concentration = df.loc[(df['Iteration'] == i) & (df['Type'] == H3O), "Concentration"]
-    if h3o_concentration.item() == 0:
-        # print("pH: infinity")
-        return -1
-    else:
-        pH = -math.log10(h3o_concentration)
-        # print(f"ph: {pH}")
-        return pH
+    h3o_concentration = df.loc[(df['Iteration'] == (next_entry - 1)) & (df['Type'] == H3O), "Concentration"]
+
+    return -math.log10(h3o_concentration)
 
 
-x_values = np.arange(0, 2, 0.01)
-y_values = []
+x_values = np.arange(0, 2, PH_CURVE_RESOLUTION)
+ph_values = []
 
 for c in x_values:
-    y_values.append(get_pH(c))
+    ph_values.append(get_ph(c))
+
+ph_df = pandas.DataFrame({"pH": ph_values, "Initial concentration of OH (mol/L)": x_values})
 
 sns.set()
-sns.lineplot(x=x_values, y=y_values)
+plot = sns.lineplot(x="Initial concentration of OH (mol/L)", y="pH", data=ph_df)
+plot.axes.set_ylim(1, 14)
 
 plt.show()
