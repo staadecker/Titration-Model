@@ -6,107 +6,179 @@ import numpy as np
 
 MAX_ITERATIONS = 1000
 
-CHANGE_CUTOFF = 0.0005
+CHANGE_CUTOFF = 1 * (10 ** -20)
 
 PH_CURVE_RESOLUTION = 0.01  # Greater number lower resolution
 CONCENTRATION_CURVE_RESOLUTION = 1  # Greater number lower resolution
 
+NAOH = "Sodium hydroxide"
 CH3COO = "Acetate"
 CH3COOH = "Acetic acid"
 OH = "Hydroxide"
 H3O = "Hydronium"
+NA = "Sodium ions"
+
+ACID = "Acetic acid dissociation"
+BASE = "Base dissociation"
+ACID_BASE = "Acid Base Reaction"
+WATER = "Water auto-ionization"
 
 KW = 10.0 ** -14
-KA = 1.76 * (10.0 ** -5)
-KB = KW / KA
+K_ACID = 1.76 * (10.0 ** -5)
+K_ACID_BASE = KW / K_ACID
+K_BASE = 0.63
 
 
-def get_ph(initial_oh):
-    iterations = []
-    concentrations = []
-    molecules = []
+class Database:
+    def __init__(self, x_axis_name, y_axis_name):
+        self.x_axis_name = x_axis_name
+        self.y_axis_name = y_axis_name
+        self.x_values = []
+        self.values = []
+        self.series = []
+        self.df = None
 
-    def add_row(index, value, molecule):
-        iterations.append(index)
-        concentrations.append(value)
-        molecules.append(molecule)
+    def add_row(self, x_value, value, series):
+        self.x_values.append(x_value)
+        self.values.append(value)
+        self.series.append(series)
 
-    oh = initial_oh + 10.0 ** (-7)
-    ch3coo = 0.
-    ch3cooh = 1.
-    h3o = 10.0 ** (-7)
+    def get_pandas_database(self):
+        self.df = pandas.DataFrame(
+            {self.x_axis_name: self.x_values, self.y_axis_name: self.values, "Type": self.series})
 
-    add_row(0, ch3coo, CH3COO)
-    add_row(0, ch3cooh, CH3COOH)
-    add_row(0, oh, OH)
-    add_row(0, h3o, H3O)
+    def get_final_value_of_series(self, last_x_value, series):
+        if self.df is None:
+            self.get_pandas_database()
+
+        return self.df.loc[(self.df[self.x_axis_name] == last_x_value) & (
+                self.df['Type'] == series), self.y_axis_name].values[0]
+
+    def graph(self, logarithmic=False):
+        if self.df is None:
+            self.get_pandas_database()
+
+        sns.lineplot(x=self.x_axis_name, y=self.y_axis_name, hue="Type", data=self.df)
+
+        if logarithmic:
+            plt.yscale('symlog', linthreshy=10 ** -16)  # Small linthreshy required to make function work
+
+    def add_point_in_data(self, x_value, new_data):
+        for row in new_data.keys():
+            self.add_row(x_value, new_data[row], row)
+
+
+def calculate_ph(hydronium_concentration):
+    return -math.log10(hydronium_concentration)
+
+
+def get_ph(initial_naoh):
+    database = Database("Iterations", "Concentration (mol/L)")
+    change_database = Database("Iterations", "Change")
+
+    chemicals = {
+        OH: 10.0 ** (-7),
+        CH3COO: 0.,
+        CH3COOH: 1.,
+        H3O: 10.0 ** (-7),
+        NAOH: initial_naoh,
+        NA: 0.
+    }
+
+    equations = {
+        WATER: [lambda: (- chemicals[OH] - chemicals[H3O] + math.sqrt(
+            (chemicals[OH] + chemicals[H3O]) ** 2 - 4 * chemicals[OH] * chemicals[H3O] + 4 * KW)) / 2, 0., [(OH, True),
+                                                                                                            (H3O,
+                                                                                                             True)]],
+        ACID: [lambda: (- chemicals[H3O] - chemicals[CH3COO] - K_ACID + math.sqrt(
+            ((chemicals[H3O] + chemicals[CH3COO] + K_ACID) ** 2) - 4 * (
+                    chemicals[H3O] * chemicals[CH3COO] - K_ACID * chemicals[CH3COOH]))) / 2, 0., [(CH3COOH, False),
+                                                                                                  (H3O, True),
+                                                                                                  (CH3COO, True)]],
+        BASE: [lambda: (- chemicals[OH] - chemicals[NA] - K_BASE + math.sqrt(
+            ((chemicals[OH] + chemicals[NA] + K_BASE) ** 2) - 4 * (
+                    chemicals[NA] * chemicals[OH] - K_BASE * chemicals[NAOH]))) / 2, 0., [(NAOH, False),
+                                                                                          (OH, True),
+                                                                                          (NA, True)]],
+        ACID_BASE: [lambda: (- chemicals[OH] - chemicals[CH3COOH] - K_ACID_BASE + math.sqrt(
+            ((chemicals[OH] + chemicals[CH3COOH] + K_ACID_BASE) ** 2) - 4 * (
+                    chemicals[OH] * chemicals[CH3COOH] - K_ACID_BASE * chemicals[CH3COO]))) / 2, 0., [(CH3COO, False),
+                                                                                                      (CH3COOH, True),
+                                                                                                      (OH, True)]]
+    }
+
+    database.add_point_in_data(0, chemicals)
 
     next_entry = 1
-
     for i in range(1, MAX_ITERATIONS):
-        # WATER AUTO-IONIZATION
-        change_w = 0.5 * (- oh - h3o + math.sqrt((oh + h3o) ** 2 - 4 * oh * h3o + 4 * KW))
+        print()
+        is_done = True
+        for equation in equations.keys():
+            required_change = equations[equation][0]()
 
-        if change_w < 0:
-            change_w = -min(oh, h3o, -change_w)
+            # Limit the change if there is not enough reactant
+            if required_change != 0:
+                print(f"{equation}   {required_change}")
+                for (chemical, positive) in equations[equation][2]:
+                    if positive:
+                        if required_change < 0:
+                            required_change = - min(-required_change, chemicals[chemical])
+                    else:
+                        if required_change > 0:
+                            required_change = min(required_change, chemicals[chemical])
 
-        oh += change_w
-        h3o += change_w
+                # Apply the required change
+                for (chemical, positive) in equations[equation][2]:
+                    if positive:
+                        chemicals[chemical] += required_change
+                    else:
+                        chemicals[chemical] -= required_change
 
-        # ACETIC ACID DISSOCIATION
-        change_a = (- h3o - ch3coo - KA + math.sqrt(((h3o + ch3coo + KA) ** 2) - 4 * (h3o * ch3coo - KA * ch3cooh))) / 2
+                equations[equation][1] += required_change
 
-        if change_a > 0:
-            change_a = min(change_a, ch3cooh)
-        else:
-            change_a = - min(-change_a, ch3coo, h3o)
+                if required_change > CHANGE_CUTOFF:
+                    is_done = False
 
-        ch3cooh -= change_a
-        ch3coo += change_a
-        h3o += change_a
-
-        #  ACETATE BASE
-        change_b = (- oh - ch3cooh - KB + math.sqrt(((oh + ch3cooh + KB) ** 2) - 4 * (oh * ch3cooh - KB * ch3coo))) / 2
-
-        if change_b > 0:
-            change_b = min(change_b, ch3coo)
-        else:
-            change_b = - min(-change_b, ch3cooh, oh)
-
-        ch3coo -= change_b
-        oh += change_b
-        ch3cooh += change_b
+            change_database.add_row(i, required_change, equation)
 
         if i % CONCENTRATION_CURVE_RESOLUTION == 0:
-            add_row(next_entry, ch3coo, CH3COO)
-            add_row(next_entry, ch3cooh, CH3COOH)
-            add_row(next_entry, oh, OH)
-            add_row(next_entry, h3o, H3O)
+            database.add_point_in_data(next_entry, chemicals)
             next_entry += 1
 
-        if change_b < CHANGE_CUTOFF and change_a < CHANGE_CUTOFF and change_w < CHANGE_CUTOFF:
+        if is_done:
+            print(i)
             break
 
-    df = pandas.DataFrame({"Iteration": iterations, "Concentration": concentrations, "Type": molecules})
+    ph = calculate_ph(database.get_final_value_of_series(next_entry - 1, H3O))
 
-    # sns.set()
-    # sns.lineplot(x='Iteration', y='Concentration', data=df, hue="Type")
+    total_changes = {}
 
-    h3o_concentration = df.loc[(df['Iteration'] == (next_entry - 1)) & (df['Type'] == H3O), "Concentration"]
+    for equation_type in equations.keys():
+        total_changes[equation_type] = equations[equation_type][1]
 
-    return -math.log10(h3o_concentration)
+    return ph, total_changes
 
 
-x_values = np.arange(0, 2, PH_CURVE_RESOLUTION)
-ph_values = []
+def main():
+    naoh_values = np.arange(0, 2, PH_CURVE_RESOLUTION)
 
-for c in x_values:
-    ph_values.append(get_ph(c))
+    ph_database = Database("Volume of NaOH added (mol/L)", "pH")
+    change_database = Database("Volume of NaOH added (mol/L)", "Change from equations (mol/L)")
 
-ph_df = pandas.DataFrame({"pH": ph_values, "Initial concentration of OH (mol/L)": x_values})
+    for c in naoh_values:
+        (ph, total_changes) = get_ph(c)
+        ph_database.add_point_in_data(c, {"pH": ph})
+        change_database.add_point_in_data(c, total_changes)
 
-sns.set()
-plot = sns.lineplot(x="Initial concentration of OH (mol/L)", y="pH", data=ph_df)
-plot.axes.set_ylim(1, 14)
+    sns.set()
 
-plt.show()
+    ph_database.graph()
+    plt.ylim(0, 14)
+    plt.show()
+
+    change_database.graph(logarithmic=True)
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
