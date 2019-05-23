@@ -174,7 +174,7 @@ def main():
         # change_graph.add_data_for_each_series(c, total_changes)
 
     plt.ylim(0, 14)
-    ph_graph.graph(title="pH as sodium hydroxide is added to acetic acid")
+    ph_graph.graph(title="pH as sodium hydroxide is added to 1M acetic acid")
 
     # change_graph.graph(logarithmic_y_axis=True)
     # change_graph.graph(logarithmic_y_axis=False)
