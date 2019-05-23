@@ -25,7 +25,7 @@ WATER = "Water auto-ionization"
 # Equilibrium constants
 KW = 10.0 ** -14
 K_ACID = 1.76 * (10.0 ** -5)
-K_ACID_BASE = K_ACID / KW
+K_ACID_BASE = K_ACID / KW  # Because the equations can subtract
 K_BASE = 0.63
 
 # Reactions
@@ -93,14 +93,17 @@ class LinearGraph:
         return self.database.loc[(self.database[self.x_axis_name] == x_value) & (
                 self.database[self.series_name] == series), self.y_axis_name].values[0]
 
-    def graph(self, logarithmic_y_axis=False):
+    def graph(self, logarithmic_y_axis=False, title=None):
         if self.database is None:
             self._create_database()
 
-        sns.lineplot(x=self.x_axis_name, y=self.y_axis_name, hue=self.series_name, data=self.database)
+        plot = sns.lineplot(x=self.x_axis_name, y=self.y_axis_name, hue=self.series_name, data=self.database)
 
         if logarithmic_y_axis:
             plt.yscale('symlog', linthreshy=10 ** -16)  # Small linthreshy required to make function work
+
+        if title is not None:
+            plot.set_title(title)
 
         plt.show()
 
@@ -162,7 +165,7 @@ def calculate_equilibrium(initial_naoh_concentration):
 
 
 def main():
-    ph_graph = LinearGraph("Volume of NaOH added (mol/L)", "pH", "")
+    ph_graph = LinearGraph("Initial concentration of NaOH (mol/L)", "pH", "")
     # change_graph = LinearGraph("Volume of NaOH added (mol/L)", "Change from equations (mol/L)", "Reaction")
 
     for c in np.arange(0, 2, PH_CURVE_RESOLUTION):
@@ -171,7 +174,7 @@ def main():
         # change_graph.add_data_for_each_series(c, total_changes)
 
     plt.ylim(0, 14)
-    ph_graph.graph()
+    ph_graph.graph(title="pH as sodium hydroxide is added to acetic acid")
 
     # change_graph.graph(logarithmic_y_axis=True)
     # change_graph.graph(logarithmic_y_axis=False)
