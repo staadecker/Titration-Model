@@ -16,7 +16,7 @@ OH = "Hydroxide"
 H3O = "Hydronium"
 NA = "Sodium ions"
 
-# Reactions
+# Reaction names
 ACID = "Acetic acid dissociation"
 BASE = "Base dissociation"
 ACID_BASE = "Acid Base Reaction"
@@ -28,6 +28,9 @@ K_ACID = 1.76 * (10.0 ** -5)
 K_ACID_BASE = K_ACID / KW
 K_BASE = 0.63
 
+# Reactions
+# First parameter is the rearranged Keq formula to isolate for the change variable (ICE table)
+# Second parameter is what chemicals form the reaction. True is a product. False is a reactant.
 REACTIONS = {
     ACID: (lambda chemicals: (- chemicals[H3O] - chemicals[CH3COO] - K_ACID + math.sqrt(
         ((chemicals[H3O] + chemicals[CH3COO] + K_ACID) ** 2) - 4 * (
@@ -106,9 +109,9 @@ def calculate_ph(hydronium_concentration):
     return -math.log10(hydronium_concentration)
 
 
-def calculate_equilibrium(initial_naoh):
-    chemicals = INITIAL_CONCENTRATIONS.copy()
-    chemicals[NAOH] = initial_naoh
+def calculate_equilibrium(initial_naoh_concentration):
+    concentrations = INITIAL_CONCENTRATIONS.copy()
+    concentrations[NAOH] = initial_naoh_concentration
 
     total_changes = {}
 
@@ -123,26 +126,26 @@ def calculate_equilibrium(initial_naoh):
         change_is_minimal = True  # Default True. Set to False on a big change
 
         for (name, (equation, changes)) in REACTIONS.items():
-            required_change = equation(chemicals)
+            required_change = equation(concentrations)
 
             # Limit the change if there is not enough reactant or product
             if required_change != 0:
                 for (chemical, positive) in changes:
                     if positive:
                         if required_change < 0:
-                            required_change = - min(-required_change, chemicals[chemical])
+                            required_change = - min(-required_change, concentrations[chemical])
                     else:
                         if required_change > 0:
-                            required_change = min(required_change, chemicals[chemical])
+                            required_change = min(required_change, concentrations[chemical])
 
                 required_change /= 2  # So that all reactions have a chance to contribute to the equilibrium
 
                 # Apply the required change
                 for (chemical, positive) in changes:
                     if positive:
-                        chemicals[chemical] += required_change
+                        concentrations[chemical] += required_change
                     else:
-                        chemicals[chemical] -= required_change
+                        concentrations[chemical] -= required_change
 
                 total_changes[name] += required_change
 
@@ -155,7 +158,7 @@ def calculate_equilibrium(initial_naoh):
         if change_is_minimal:
             break
 
-    return chemicals, total_changes
+    return concentrations, total_changes
 
 
 def main():
